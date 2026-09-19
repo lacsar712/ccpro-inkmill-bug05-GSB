@@ -2,14 +2,20 @@ from decimal import Decimal
 
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
+from sqlalchemy.exc import IntegrityError
 
 from app.database import SessionLocal
 from app.models.grind_pass import GrindPass
 from app.models.mill import Mill
+from app.pass_no_policy import assert_pass_no_available
 from app.serializers import grind_pass_json
 from app.utils import error, normalize_datetime
 
 bp = Blueprint("grind_passes", __name__, url_prefix="/api/grind-passes")
+
+
+def _pass_no_conflict(pass_no: int):
+    return error(f"该研磨机已存在第 {pass_no} 遍，遍次号不能重复", 409)
 
 
 def _validate(body: dict) -> str | None:
@@ -74,19 +80,8 @@ def create_pass():
     try:
         mill_id = int(body["millId"])
         pass_no = int(body["passNo"])
-        existing = (
-            db.query(GrindPass)
-            .filter(GrindPass.mill_id == mill_id, GrindPass.pass_no == pass_no)
-            .first()
-        )
-        if existing:
-            existing.started_at = normalize_datetime(str(body["startedAt"]))
-            existing.duration_min = Decimal(str(body["durationMin"]))
-            existing.media_type = str(body["mediaType"]).strip()
-            existing.operator_name = str(body["operatorName"]).strip()
-            db.commit()
-            db.refresh(existing)
-            return jsonify(grind_pass_json(existing)), 201
+        if not assert_pass_no_available(db, mill_id, pass_no):
+            return _pass_no_conflict(pass_no)
 
         row = GrindPass(
             mill_id=mill_id,
@@ -97,7 +92,11 @@ def create_pass():
             operator_name=str(body["operatorName"]).strip(),
         )
         db.add(row)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            return _pass_no_conflict(pass_no)
         db.refresh(row)
         return jsonify(grind_pass_json(row)), 201
     finally:
@@ -118,13 +117,22 @@ def update_pass(item_id: int):
         if not row:
             return error("研磨遍次不存在", 404)
 
-        row.mill_id = int(body["millId"])
+        mill_id = int(body["millId"])
+        pass_no = int(body["passNo"])
+        if not assert_pass_no_available(db, mill_id, pass_no, exclude_id=item_id):
+            return _pass_no_conflict(pass_no)
+
+        row.mill_id = mill_id
         row.started_at = normalize_datetime(str(body["startedAt"]))
-        row.pass_no = int(body["passNo"])
+        row.pass_no = pass_no
         row.duration_min = Decimal(str(body["durationMin"]))
         row.media_type = str(body["mediaType"]).strip()
         row.operator_name = str(body["operatorName"]).strip()
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            return _pass_no_conflict(pass_no)
         db.refresh(row)
         return jsonify(grind_pass_json(row))
     finally:
