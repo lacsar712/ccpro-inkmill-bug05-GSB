@@ -27,6 +27,9 @@ PY
 echo "Creating tables..."
 python -c "from app.database import Base, engine; from app import models; Base.metadata.create_all(bind=engine)"
 
+echo "Ensuring schema constraints..."
+python -c "from app.database import engine; from app.schema import ensure_schema_constraints; ensure_schema_constraints(engine)"
+
 if [ "${SEED_ON_START}" = "true" ] || [ "${SEED_ON_START}" = "1" ]; then
   echo "Seeding data..."
   python -c "from app.seed import seed; seed()"

@@ -1,7 +1,15 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, func
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -9,6 +17,9 @@ from app.database import Base
 
 class GrindPass(Base):
     __tablename__ = "grind_passes"
+    __table_args__ = (
+        UniqueConstraint("mill_id", "pass_no", name="uq_grind_pass_mill_pass_no"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     mill_id: Mapped[int] = mapped_column(
